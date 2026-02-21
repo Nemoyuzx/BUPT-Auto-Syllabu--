@@ -30,6 +30,15 @@ year_week = int(cfg('year_week', 53)) # 今年总周数(兼容旧字段)
 term_start_date_str = str(cfg('term_start_date', '2026-03-02')) # 学期第1周周一
 Combine_Trigger = bool(cfg('Combine_Trigger', True)) # 连着几节的课程是否合并
 show_week_mapping = bool(cfg('show_week_mapping', True)) # 启动时打印周次日期映射(调试)
+OUTPUT_DIR = str(cfg('output_dir', 'output'))
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+TEMP_XLS_PATH = os.path.join(OUTPUT_DIR, 'a.xls')
+FETCHED_XLS_PATH = os.path.join(OUTPUT_DIR, 'fetched_kb.xls')
+CALENDAR_ICS_PATH = os.path.join(OUTPUT_DIR, 'calendar.ics')
+DIRECT_TXT_PATH = os.path.join(OUTPUT_DIR, 'direct.txt')
+CHART_MD_PATH = os.path.join(OUTPUT_DIR, 'semester_16week_chart.md')
+CHART_CSV_PATH = os.path.join(OUTPUT_DIR, 'semester_16week_chart.csv')
 
 
 def resolve_term_start_date():
@@ -306,13 +315,13 @@ p = session.post(url, data=data)
 if 'html' in p.text:
   print('\n------------------密码错误------------------')
   quit()
-f=open('a.xls','wb')
+f=open(TEMP_XLS_PATH,'wb')
 f.write(p.content)
 f.close()
-with open('fetched_kb.xls', 'wb') as debug_f:
+with open(FETCHED_XLS_PATH, 'wb') as debug_f:
   debug_f.write(p.content)
 print(f'抓取课表文件大小: {len(p.content)} bytes')
-wb = xlrd.open_workbook("./a.xls")
+wb = xlrd.open_workbook(TEMP_XLS_PATH)
 ws = wb.sheet_by_index(0)
 nrows = ws.nrows
 ncols = ws.ncols
@@ -356,7 +365,7 @@ print(f'解析到课程片段: {len(all_lesson)}')
 for i in range(7000,8000):
   pb.print_next()
 
-f=open('calendar.ics','w',encoding='utf-8')
+f=open(CALENDAR_ICS_PATH,'w',encoding='utf-8')
 head=['BEGIN:VCALENDAR',
 'VERSION:2.0',
 ]
@@ -460,9 +469,9 @@ f.write('END:VCALENDAR')
 res_txt += 'END:VCALENDAR'
 f.close()
 
-write_16week_chart(event_rows_for_chart)
+write_16week_chart(event_rows_for_chart, markdown_path=CHART_MD_PATH, csv_path=CHART_CSV_PATH)
 
-os.remove("./a.xls")
+os.remove(TEMP_XLS_PATH)
 
 import urllib.parse
 for i in range(9900,10000):
@@ -471,9 +480,10 @@ for i in range(9900,10000):
 res_txt = urllib.parse.quote(res_txt, safe='~@#$&()*!+=:;,.?/\'')
 #使用二进制格式保存转码后的文本
 res_txt = 'data:text/calendar,' + res_txt
-f=open('direct.txt','w',encoding='utf-8')
+f=open(DIRECT_TXT_PATH,'w',encoding='utf-8')
 f.write(res_txt)
 f.close()
-print('已生成: semester_16week_chart.md / semester_16week_chart.csv')
+print(f'已生成: {CHART_MD_PATH} / {CHART_CSV_PATH}')
+print(f'已生成: {CALENDAR_ICS_PATH} / {DIRECT_TXT_PATH}')
 print('--------------------DONE--------------------')
 print('请查看README了解如何导入和使用')

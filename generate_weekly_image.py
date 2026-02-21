@@ -11,8 +11,9 @@ except Exception:
     config = None
 
 
-XLS_PATH = Path('fetched_kb.xls')
-OUT_PATH = Path('semester_16week_vertical.png')
+OUTPUT_DIR = Path(getattr(config, 'output_dir', 'output') if config else 'output')
+XLS_PATH = OUTPUT_DIR / 'fetched_kb.xls'
+OUT_PATH = OUTPUT_DIR / 'semester_16week_vertical.png'
 
 COURSE_COLORS = [
     '#E8F1FF', '#EAF7EE', '#FFF4E5', '#F3ECFF', '#FFECEF',
@@ -289,10 +290,15 @@ def draw_vertical_weeks(weekdays, sections, per_week, out_path: Path):
 
 
 def main():
-    if not XLS_PATH.exists():
-        raise SystemExit(f'找不到 {XLS_PATH}，请先运行 process.py 生成 fetched_kb.xls')
+    xls_path = XLS_PATH
+    if not xls_path.exists() and Path('fetched_kb.xls').exists():
+        xls_path = Path('fetched_kb.xls')
+    if not xls_path.exists():
+        raise SystemExit(f'找不到 {XLS_PATH}，请先运行 process.py 生成课表文件')
 
-    events = parse_all_events_from_xls(XLS_PATH)
+    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    events = parse_all_events_from_xls(xls_path)
     weekdays, sections, per_week = build_grid(events)
     draw_vertical_weeks(weekdays, sections, per_week, OUT_PATH)
     print(f'已生成图片: {OUT_PATH}')

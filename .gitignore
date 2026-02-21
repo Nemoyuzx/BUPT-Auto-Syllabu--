@@ -128,3 +128,12 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Local personal config
+config.py
+
+# macOS
+.DS_Store
+
+# Generated outputs
+output/
+
