@@ -78,9 +78,20 @@ python generate_weekly_image.py
 
 - 直接打开 `output/calendar.ics` 导入系统日历。
 
+### Android
+
+- 安卓手机也可以直接在日历应用中导入 `output/calendar.ics`。
+- 若系统日历未显示“导入”入口，可先在文件管理器中点开 `calendar.ics`，再选择日历应用。
+
 ### 其他设备（兼容旧流程）
 
 - 可使用 `output/direct.txt`（data URI）方式手动导入。
+
+## 前后端整合（持续尝试）
+
+- 仓库内已保留前端工程目录：`BUPT-AUTO-SYLLABUS-JS/`。
+- 当前推荐流程：先运行 Python 脚本生成 `output/` 产物，再由前端读取展示。
+- 后续目标：将“抓课表 -> 生成 ICS/图表 -> 前端下载”整合为一体化页面流程。
 
 ## 备注
 
