@@ -8,15 +8,147 @@ import math
 import requests
 import time
 import os
-import math
 import platform
+import csv
+
+try:
+  import config as user_config
+except Exception:
+  user_config = None
+
+
+def cfg(name, default):
+  if user_config is None:
+    return default
+  return getattr(user_config, name, default)
 
 # 高级设置
-year = '2022' # 年份
-xueqi = '2022-2023-1' # 学期数
-begin_week = 35 # 开学的当周，苹果日历中查看，打开设置中的周数
-year_week = 52 # 今年总周数
-Combine_Trigger = True # 连着几节的课程是否合并
+year = str(cfg('year', '2026')) # 年份(兼容旧字段)
+xueqi = str(cfg('xueqi', '2025-2026-2')) # 学期数
+begin_week = int(cfg('begin_week', 9)) # 开学的当周(兼容旧字段)
+year_week = int(cfg('year_week', 53)) # 今年总周数(兼容旧字段)
+term_start_date_str = str(cfg('term_start_date', '2026-03-02')) # 学期第1周周一
+Combine_Trigger = bool(cfg('Combine_Trigger', True)) # 连着几节的课程是否合并
+show_week_mapping = bool(cfg('show_week_mapping', True)) # 启动时打印周次日期映射(调试)
+
+
+def resolve_term_start_date():
+  try:
+    return datetime.datetime.strptime(term_start_date_str, '%Y-%m-%d').date()
+  except ValueError:
+    pass
+
+  try:
+    old_rule_week = begin_week - 1
+    d = datetime.datetime.strptime(f'{year}-W{old_rule_week}-1', '%Y-W%W-%w').date()
+    print(f'\nterm_start_date 格式无效，已按旧规则回退为: {d}')
+    return d
+  except Exception:
+    today = datetime.date.today()
+    monday = today - datetime.timedelta(days=today.weekday())
+    print(f'\nterm_start_date/旧规则都不可用，已回退到系统日期所在周一: {monday}')
+    return monday
+
+
+TERM_START_DATE = resolve_term_start_date()
+
+
+def expand_week_numbers(week_text):
+  raw = str(week_text).replace('，', ',').replace(' ', '')
+  odd_only = ('单' in raw)
+  even_only = ('双' in raw)
+  raw = raw.replace('周', '')
+  raw = re.sub(r'\[.*?\]', '', raw)
+  raw = re.sub(r'\(.*?\)', '', raw)
+  week_numbers = []
+  for item in raw.split(','):
+    if not item:
+      continue
+    if '-' in item:
+      left, right = item.split('-', 1)
+      if left.isdigit() and right.isdigit():
+        week_numbers.extend(range(int(left), int(right) + 1))
+    elif item.isdigit():
+      week_numbers.append(int(item))
+  week_numbers = sorted(set(week_numbers))
+  if odd_only:
+    week_numbers = [w for w in week_numbers if w % 2 == 1]
+  elif even_only:
+    week_numbers = [w for w in week_numbers if w % 2 == 0]
+  return week_numbers
+
+
+def calc_lesson_date(week_num, weekday_num):
+  target = TERM_START_DATE + datetime.timedelta(days=(week_num - 1) * 7 + (weekday_num - 1))
+  return target.strftime('%Y%m%d')
+
+
+def print_week_mapping_preview():
+  print('\n周次日期映射预览(学期第1周):')
+  weekday_names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+  for idx, name in enumerate(weekday_names, start=1):
+    date_str = calc_lesson_date(1, idx)
+    print(f'  第1周{name}: {date_str}')
+
+
+def parse_cell_courses(cell_info):
+  """解析课表单元格文本，支持一个单元格中包含多门课(每门一般5行)。"""
+  lines = [line.strip() for line in str(cell_info).splitlines() if str(line).strip()]
+  courses = []
+  for idx, line in enumerate(lines):
+    if '[周]' not in line or not re.search(r'\d', line):
+      continue
+    if idx + 2 >= len(lines):
+      continue
+    place = lines[idx + 1]
+    section = lines[idx + 2]
+    if '节' not in section:
+      continue
+    teacher = lines[idx - 1] if idx - 1 >= 0 else ''
+    name_idx = idx - 2
+    if name_idx >= 0 and re.fullmatch(r'\(\d+\)', lines[name_idx]):
+      name_idx -= 1
+    if name_idx < 0:
+      continue
+    name = lines[name_idx]
+    courses.append({
+      'name': name,
+      'teacher': teacher,
+      'week': line,
+      'place': place,
+      'section': section,
+    })
+  return courses
+
+
+def write_16week_chart(rows, markdown_path='semester_16week_chart.md', csv_path='semester_16week_chart.csv'):
+  weekday_names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+  chart = {(week, day): [] for week in range(1, 17) for day in range(1, 8)}
+  for row in rows:
+    week = row['week_num']
+    day = row['weekday']
+    if 1 <= week <= 16 and 1 <= day <= 7:
+      chart[(week, day)].append(f"{row['name']}@{row['place']} {row['time_range']}")
+
+  with open(csv_path, 'w', encoding='utf-8-sig', newline='') as fcsv:
+    writer = csv.writer(fcsv)
+    writer.writerow(['周次'] + weekday_names)
+    for week in range(1, 17):
+      line = [str(week)]
+      for day in range(1, 8):
+        line.append(' | '.join(sorted(set(chart[(week, day)]))))
+      writer.writerow(line)
+
+  with open(markdown_path, 'w', encoding='utf-8') as fmd:
+    fmd.write('# 16周课表图表\n\n')
+    fmd.write('| 周次 | ' + ' | '.join(weekday_names) + ' |\n')
+    fmd.write('| ' + ' | '.join(['---'] * (len(weekday_names) + 1)) + ' |\n')
+    for week in range(1, 17):
+      cells = []
+      for day in range(1, 8):
+        cells.append('<br>'.join(sorted(set(chart[(week, day)]))))
+      fmd.write(f"| {week} | " + ' | '.join(cells) + ' |\n')
+
 class ProcessBar(object):
   def __init__(self, total):  # 初始化传入总数
     self.shape = ['▏', '▎', '▍', '▋', '▊', '▉']
@@ -57,8 +189,14 @@ print('Github: www.github.com/Lawted')
 time.sleep(1)
 print("------------------NOW LET'S BEGIN!!!------------------")
 time.sleep(1)
-BUPT_ID = input('请输入你的学号: ')
-BUPT_PASS = input('请输入你的新教务密码: ')
+BUPT_ID = str(cfg('account', '')).strip()
+BUPT_PASS = str(cfg('password', '')).strip()
+if BUPT_ID and BUPT_PASS:
+  print('已从 config.py 读取账号密码。')
+else:
+  print('config.py 未提供完整账号密码，改为手动输入。')
+  BUPT_ID = input('请输入你的学号: ').strip()
+  BUPT_PASS = input('请输入你的新教务密码: ').strip()
 
 
 
@@ -85,6 +223,10 @@ if not BUPT_PASS:
 if not keyStr:
   print('---叫你别改那个---')
   quit()
+
+print(f'学期第1周周一日期: {TERM_START_DATE}')
+if show_week_mapping:
+  print_week_mapping_preview()
 
 
 if platform.system().lower() == 'windows':
@@ -157,30 +299,19 @@ for i in range(4600,5500):
   pb.print_next()
 
 # 第三次请求带上cookie
-cookies1 = l1.cookies.items()
-cookie = ''
-for name, value in cookies1:
-  cookie += '{0}={1}; '.format(name, value)
 time.sleep(3)
-headers = {
-  "cookie": cookie
-}
 data = {'xnxq01id': xueqi, 'zc': '', 'kbjcmsid': '9475847A3F3033D1E05377B5030AA94D'}
 url = 'https://jwgl.bupt.edu.cn/jsxsd/xskb/xskb_print.do?xnxq01id={}&zc=&kbjcmsid=9475847A3F3033D1E05377B5030AA94D'.format(xueqi)
-p = requests.post(url, data=data, headers=headers)
+p = session.post(url, data=data)
 if 'html' in p.text:
   print('\n------------------密码错误------------------')
   quit()
 f=open('a.xls','wb')
 f.write(p.content)
-
-class lesson:
-  name = ''
-  week = ''
-  place = ''
-  section = ''
-  time = ''
-
+f.close()
+with open('fetched_kb.xls', 'wb') as debug_f:
+  debug_f.write(p.content)
+print(f'抓取课表文件大小: {len(p.content)} bytes')
 wb = xlrd.open_workbook("./a.xls")
 ws = wb.sheet_by_index(0)
 nrows = ws.nrows
@@ -192,49 +323,40 @@ col_values = ws.col_values(colx=0)
 realtime_list = col_values[3:17]
 realtime_list = [time.split('\n')[1] for time in realtime_list]
 all_lesson = []
-# list(realtime_list)
-# print(realtime_list)
 for col in range(1,6):
   for row in range(3,17):
     cell_info = ws.cell_value(rowx=row, colx=col)
-    if cell_info != ' ' and 0<row<17:
-      cells_list = []
-      cells = cell_info.splitlines()[1:]
-      # 体育课有六项
-      if len(cells) == 6:
-        cells = cells[1:]
-        # 去掉括号
-        cells[0] = cells[0][1:-1]
-      # 两种课程写一起了
-      if len(cells) > 5:
-        cells1 = cells[5:]
-        cells2 = cells[:5]
-        cells_list.append(cells1)
-        cells_list.append(cells2)
-      else:
-        cells_list.append(cells)
-      for c in cells_list:
-        lec1 =lesson()
-        lec1.name = c[0]
-        lec1.week = c[-3]
-        lec1.place = c[-2]
-        lec1.section = c[-1]
-        lec1.time = realtime_list[row-3] + '+' +str(col)
-        all_lesson.append(lec1.__dict__)
-        # print(lec1.__dict__)
-    if Combine_Trigger and cell_info != ' ' and 3 < row and cell_info == ws.cell_value(rowx=row-1, colx=col):
-      all_lesson.pop()
-      tmplesson = all_lesson.pop()
-      tmplesson['time'] = tmplesson['time'].split('-')[0] + '-' +realtime_list[row-3].split('-')[1] + '+' + str(col)
-      all_lesson.append(tmplesson)
-# print(len(all_lesson))
-# print(all_lesson)
+    if not isinstance(cell_info, str) or not cell_info.strip() or cell_info.strip() == ' ':
+      continue
+    if Combine_Trigger and row > 3 and cell_info == ws.cell_value(rowx=row-1, colx=col):
+      continue
+
+    end_row = row
+    if Combine_Trigger:
+      while end_row + 1 < 17 and ws.cell_value(rowx=end_row+1, colx=col) == cell_info:
+        end_row += 1
+
+    start_time = realtime_list[row-3].split('-')[0]
+    end_time = realtime_list[end_row-3].split('-')[1]
+    time_range = start_time + '-' + end_time
+
+    for course in parse_cell_courses(cell_info):
+      all_lesson.append({
+        'name': course['name'],
+        'teacher': course['teacher'],
+        'week': course['week'],
+        'place': course['place'],
+        'section': course['section'],
+        'time': time_range + '+' + str(col)
+      })
+
+print(f'解析到课程片段: {len(all_lesson)}')
 
 # 写入头文件
 for i in range(7000,8000):
   pb.print_next()
 
-f=open('apple_calendar.ics','w',encoding='utf-8')
+f=open('calendar.ics','w',encoding='utf-8')
 head=['BEGIN:VCALENDAR',
 'VERSION:2.0',
 ]
@@ -308,46 +430,37 @@ def write_file(f, name, place, date, time_start, time_end):
   res_txt += '\r\n'
   # print(res_txt)
 
+event_rows_for_chart = []
+
 for l in all_lesson:
   # print(l['name'])
   name = l['name']
   week = l['week']
-  week_all = week[:-3].split(',')
+  week_numbers = expand_week_numbers(week)
   place = l['place']
   time = l['time']
   time_all = time.split('+')[0]
   time_start = ''.join(time_all.split('-')[0].split(':')) + '00'
   time_end = ''.join(time_all.split('-')[1].split(':')) + '00'
-  time_seven = time.split('+')[1]
+  time_seven = int(time.split('+')[1])
   date = []
-  # print(week_all)
-  for week_item in week_all:
-    # if len(week_item) == 1:
-    #   print(week_item)
-    #   week_item_begin = week_item
-    #   week_item_end = week_item
-    if not '-' in week_item:
-      d = year + '-W' + str(int(week_item)+begin_week-1) + '-' + str(time_seven)
-      r = datetime.datetime.strptime(d, "%Y-W%W-%w")
-      date = r.strftime('%Y%m%d')
-      # print(name, place, date, time_start, time_end)
-      write_file(f, name, place, date, time_start, time_end)
-    else:
-      week_item_begin = week_item.split('-')[0]
-      week_item_end = week_item.split('-')[1]
-      # print(week_item_begin, week_item_end)
-      for week_iter in range(int(week_item_begin)+begin_week-1, int(week_item_end)+begin_week):
-        d = year + '-W' + str(week_iter) + '-' + str(time_seven)
-        r = datetime.datetime.strptime(d, "%Y-W%W-%w")
-        date = r.strftime('%Y%m%d')
-        # print(name, place, date, time_start, time_end)
-        write_file(f, name, place, date, time_start, time_end)
-      # date.append(a)
-      # print(name,place,date,time_start,time_end)
+  for week_num in week_numbers:
+    date = calc_lesson_date(week_num, time_seven)
+    print(name, place, date, time_start, time_end)
+    write_file(f, name, place, date, time_start, time_end)
+    event_rows_for_chart.append({
+      'week_num': week_num,
+      'weekday': time_seven,
+      'name': name,
+      'place': place,
+      'time_range': time_all
+    })
 
 f.write('END:VCALENDAR')
 res_txt += 'END:VCALENDAR'
 f.close()
+
+write_16week_chart(event_rows_for_chart)
 
 os.remove("./a.xls")
 
@@ -361,5 +474,6 @@ res_txt = 'data:text/calendar,' + res_txt
 f=open('direct.txt','w',encoding='utf-8')
 f.write(res_txt)
 f.close()
+print('已生成: semester_16week_chart.md / semester_16week_chart.csv')
 print('--------------------DONE--------------------')
 print('请查看README了解如何导入和使用')
