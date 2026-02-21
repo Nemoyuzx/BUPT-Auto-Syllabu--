@@ -1,62 +1,88 @@
 # BUPT-Auto-Syllabu
-#### ![](https://img.shields.io/badge/author-Lawted-lightpink) ![GitHub](https://img.shields.io/github/license/LAWTED/BUPT-Auto-Syllabu) ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/LAWTED/BUPT-Auto-Syllabu) ![GitHub top language](https://img.shields.io/github/languages/top/LAWTED/BUPT-Auto-Syllabu?color=56ccf2) ![GitHub last commit](https://img.shields.io/github/last-commit/LAWTED/BUPT-Auto-Syllabu?color=yellow) [![wakatime](https://wakatime.com/badge/user/b538f533-3e8c-4b7b-ab49-7aab7771d31c/project/636b7c61-1a6a-466d-9dc4-7915b172c49f.svg)](https://wakatime.com/badge/user/b538f533-3e8c-4b7b-ab49-7aab7771d31c/project/636b7c61-1a6a-466d-9dc4-7915b172c49f)
 
-自动获取北邮课表导入苹果日历
+自动获取北邮课表并生成日历文件（ICS）与 16 周可视化课表图。
 
-# version 2.0(等待修复)
-## 因为最近西工大事件, 北邮对vpn进行加强改造,目前方案正在筹划,网页版本等待修复
-直接访问 lawted.tech (推荐)
+## Fork 说明
 
-<img src="https://user-images.githubusercontent.com/56634309/155940362-19c70b23-2dad-4b15-84c0-752cd177c61b.gif" width="25%">
+- 官方仓库：<https://github.com/LAWTED/BUPT-Auto-Syllabu>
+- 当前维护仓库（本仓库）：<https://github.com/Nemoyuzx/BUPT-Auto-Syllabu-->
+- 本仓库在官方基础上新增了：
+	- `config.py` 读取账号与学期配置
+	- 学期起始日期精确映射（支持指定 `term_start_date`）
+	- 16 周图表导出（CSV / Markdown / PNG）
+	- 所有生成产物统一输出到 `output/` 目录
 
-# TODO
-* 部分周六的课程
+## 环境要求
 
-# version 1.0 (不推荐)
+- Python 3.9+
+- 校园网环境（或可访问教务系统）
 
-## 环境配置
-校园网环境
-``` python
-python 3.0
-pip
-```
+安装依赖：
 
-## 使用方法
-
-打开终端
-
-```python
+```bash
 pip install -r requirements.txt
-python process.py
-# 然后按照提示操作
 ```
 
-### 如果是`MacOS`的电脑
+如果要生成课表图片：
 
-> 直接打开`calendar.ics`便可以自动导入
+```bash
+pip install matplotlib chinese-calendar
+```
 
+## 新版使用方法
 
+### 1) 配置账号与学期参数
 
-### 如果是`Windows`的电脑
-
-> 将`direct.txt `发送文件到手机(比如微信文件传输助手)， 再苹果手机中存储到文件，打开文件`direct.txt `复制所有内容，到`safari`浏览器中地址栏粘贴跳转，然后导入苹果日历
-
-
-
-## 高级设置
-
-打开`process.py`，找到头部的高级设置，可以设置详细信息
+编辑 `config.py`：
 
 ```python
-# 高级设置
-year = '2022' # 年份
-xueqi = '2021-2022-2' # 学期数
-begin_week = 9 # 开学的当周，苹果日历中查看，打开设置中的周数
-year_week = 52 # 今年总周数
-Combine_Trigger = True # 连着几节的课程是否合并
+account = "你的学号"
+password = "你的教务密码"
+
+xueqi = "2025-2026-2"
+year = "2026"
+term_start_date = "2026-03-02"   # 学期第1周周一
+
+Combine_Trigger = True
+show_week_mapping = True
+output_dir = "output"
 ```
 
-## linux 连接校园网
+### 2) 生成课表 ICS 与文本导入链接
+
+```bash
+python process.py
 ```
-sudo openconnect --protocol=gp --script=/etc/vpnc/vpnc-script vpn.bupt.edu.cn
+
+运行后会在 `output/` 生成：
+
+- `calendar.ics`
+- `direct.txt`
+- `semester_16week_chart.md`
+- `semester_16week_chart.csv`
+- `fetched_kb.xls`（调试用抓取快照）
+
+### 3) 生成 16 周可视化课表图
+
+```bash
+python generate_weekly_image.py
 ```
+
+输出文件：
+
+- `output/semester_16week_vertical.png`
+
+## 导入说明
+
+### macOS / iOS
+
+- 直接打开 `output/calendar.ics` 导入系统日历。
+
+### 其他设备（兼容旧流程）
+
+- 可使用 `output/direct.txt`（data URI）方式手动导入。
+
+## 备注
+
+- `config.py` 与 `output/` 已加入 `.gitignore`，默认不会被提交。
+- 若课程日期偏移，优先检查 `config.py` 中的 `term_start_date`。
